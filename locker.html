@@ -8,7 +8,6 @@
 </head>
 <body>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"> </script>
-
     <style> 
         .summary { 
             float: right; 
@@ -88,10 +87,7 @@
                 </td>
             </tr>
             <tr>
-                <td>Color:</td><td>
-                  <div id="color"></div>
-                  <div id="selectedShadeName" style="font-size:11px;color:#555;margin-top:4px;font-weight:bold;"></div>
-                </td></tr>
+                <td>Color:</td><td><div id="color"></div></td></tr>
         </table>
     </form>
     <table><tr><td>
@@ -153,25 +149,17 @@
                     currentColor = solid.color;
                     swatch.style.outline = '2px solid #333';
                     swatch.style.transform = 'scale(1.1)';
-                    // Show initial shade name
-                    setTimeout(function() {
-                        var lbl = document.getElementById('selectedShadeName');
-                        if (lbl) lbl.textContent = 'Selected: ' + solid.name;
-                    }, 0);
                 }
 
                 swatch.onclick = () => {
-                    Array.from(shade.querySelectorAll('.shade-swatch')).forEach(child => {
+                    Array.from(shade.children).forEach(child => {
                         child.style.outline = 'none';
                         child.style.transform = 'scale(1)';
                     });
                     swatch.style.outline = '2px solid #333';
                     swatch.style.transform = 'scale(1.1)';
                     currentColor = solid.color;
-                    var lbl = document.getElementById('selectedShadeName');
-                    if (lbl) lbl.textContent = 'Selected: ' + solid.name;
                 };
-                swatch.className = 'shade-swatch';
                 shade.appendChild(swatch);
             });
         }
@@ -366,28 +354,10 @@
                 .filter(function(value) { return value > 0; });
         }
 
-        function getShadeNameByColor(hex) {
-            if (typeof solids === 'undefined') return '';
-            var found = solids.find(function(s) { return s.color.toLowerCase() === hex.toLowerCase(); });
-            return found ? found.name : '';
-        }
-
         function drawNormalDoor(ctx, x, y, w, h, scale, fillColor) {
-            ctx.fillStyle = fillColor || '#e9ecef';
+            ctx.fillStyle = fillColor;
             ctx.fillRect(x, y, w, h);
-            ctx.strokeStyle = '#333';
             ctx.strokeRect(x, y, w, h);
-            // Show shade name inside the locker cell
-            var sName = getShadeNameByColor(fillColor);
-            if (sName && w > 28 && h > 16) {
-                ctx.save();
-                ctx.font = 'bold 9px monospace';
-                ctx.fillStyle = '#1c1c2e';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                ctx.fillText(sName, x + w / 2, y + 3);
-                ctx.restore();
-            }
 
             var inset = Math.max(2, 5 * scale);
             ctx.strokeRect(x + inset, y + inset, w - inset * 2, h - inset * 2);
@@ -419,7 +389,7 @@
             var cutY2 = y + fullH * 0.65;
             var inset = Math.max(2, 5 * scale);
 
-            ctx.fillStyle = topFillColor || '#e9ecef';
+            ctx.fillStyle = topFillColor;
             ctx.beginPath();
             ctx.moveTo(x, y);
             ctx.lineTo(x + w, y);
@@ -430,11 +400,8 @@
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
-            // shade name top half
-            var _tn = getShadeNameByColor(topFillColor);
-            if (_tn) { ctx.save(); ctx.font='bold 9px monospace'; ctx.fillStyle='#1c1c2e'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(_tn, x+w*0.4, y+cutY1/2-y/2); ctx.restore(); }
 
-            ctx.fillStyle = bottomFillColor || '#e9ecef';
+            ctx.fillStyle = bottomFillColor;
             ctx.beginPath();
             ctx.moveTo(x, cutY1);
             ctx.lineTo(cutX, cutY1);

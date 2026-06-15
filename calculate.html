@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>2D Sheet Cutting Optimizer</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        input { width: 90%; padding: 4px; }
+        button { padding: 6px 12px; cursor: pointer; }
+        input, select, button, table { font-size: calc(14px * var(--font-scale)); }
+        .result-box { display: none; background: #eff1f1;
+             border: 1px solid #d2e7de; padding: 15px; margin-top: 20px;
+            width: 50vw; align-content: center; justify-content: center;}
+        .sheet-canvas { border: 2px solid #333;
+             background: #fff; margin-top: 15px; display: block;
+            width: 50vw; align-items: center; justify-content: center;}
+        .sheet-container { margin-bottom: 30px; }
+        .waste-info { color: #c62828; font-weight: bold; margin: 5px 0; }
+        nav{ background-color: rgb(0, 0, 0); min-height: 34px; display:flex; align-items:center; gap:2px; padding:0 8px;}
+        nav a{color:#fff;text-decoration: none;padding:8px 10px; font-size: calc(14px * var(--font-scale)); border-radius:4px;}
+        a:hover{background-color: green;}
+        .font-controls { margin-left:auto; display:flex; align-items:center; gap:4px; }
+        .font-btn { border:1px solid #8f8f8f; border-radius:4px; background:#f4f4f4; color:#1c1c2e;
+             cursor:pointer; font-weight:700; min-width:34px; padding:4px 8px; line-height:1.1; }
+        .font-btn:hover { background:#fff; }
+    </style>
+</head>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"> </script>
+<body>
+ <nav>
+        <a href="index.html">Cubicle</a>
+        <a href="locker.html">Locker</a>
+        <a href="calculate.html" aria-current="page">Partition</a>
+        <a href="login.html">login</a>
+        <div class="font-controls" aria-label="Font size controls">
+            <button type="button" class="font-btn" 
+            onclick="changeFontSize(1)" title="Increase font size">A+</button>
+            <button type="button" class="font-btn" onclick="changeFontSize(-1)" title="Decrease font size">A-</button>
+        </div>
+    </nav>
+    <h2>2D Sheet Cutting Optimizer</h2>
+    <label>Kerf / Blade Width (mm): 
+        <input type="number" id="kerf" value="2" style="width:60px;"></label>
+    <br><br>
+    <table>
+        <thead>
+            <tr>
+                <th>Item Name</th>
+                <th>Width (mm)</th>
+                <th>Height (mm)</th>
+                <th>Qty</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody id="itemBody">
+            <tr>
+                <td><select class="item-name" onchange="setDefaultDimensions(this)">
+                    <option value="door">Door</option>
+                    <option value="plaster">Midpanel</option>
+                    <option value="divider">Divider</option>
+                    <option value="urinal">Urinal</option>
+                    <option value="endwall">Endwall</option>
+                    <option value="endpanel">Endpanel</option>
+                </select></td>
+                <td><input type="number" value="600" class="item-w"></td>
+                <td><input type="number" value="1790" class="item-h"></td>
+                <td><input type="number" value="1" class="item-q"></td>
+                <td><button onclick="this.closest('tr').remove()" style="color:red;">&times;</button></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <button onclick="addRow()">+ Add Row</button>
+    <button onclick="saveInputs()" style="background:#f39c12; color:white; font-weight:bold;">Save Inputs</button>
+    <button onclick="calculateOptimization()" 
+    style="background:#2e7d32; color:white; font-weight:bold;">Calculate Cuts</button>
+    <button id="exportBtn" onclick="exportSheetSummary()" 
+    style="background:#1565c0; color:white; font-weight:bold; display:none;">Download Summary (CSV)</button>
+
+    <div id="results" class="result-box">
+        <h3>Optimal Choice: <span id="bestSheet"></span></h3>
+        <p>Total Sheets Required: <strong id="sheetsNeeded"></strong></p>
+        <p>Total Cut Panels Area: <span id="usedArea"></span> m² (<span id="ft2"></span> sq.ft)</p>
+        <div id="canvasContainer"></div>
+    </div>
+    <!-- Insert this inside your #results div container -->
+<div id="orderSummarySection">
+    <h3 style="margin-top: 0; color: #333;">Material Order Summary</h3>
+    <table >
+        <thead>
+            <tr style="background: #f1f1f1; border-bottom: 2px solid #ccc;">
+                <th style="padding: 8px;">Sheet Size / Specification</th>
+                <th style="padding: 8px;">Qty</th>
+                <th style="padding: 8px;">Total Area</th>
+                <th style="padding: 8px;">Used Area</th>
+                <th style="padding: 8px;">Remaining Area</th>
+            </tr>
+        </thead>
+        <tbody id="summaryTableBody">
+            <!-- Dynamic data will be generated here -->
+        </tbody>
+    </table>
+</div>
+
+<script src="main.js"></script>
+<script>
+window.onload = loadInputs;
+
+function saveInputs() {
+    const rows = document.querySelectorAll('#itemBody tr');
+    const data = [];
+    rows.forEach(row => {
+        data.push({
+            name: row.querySelector('.item-name').value,
+            w: row.querySelector('.item-w').value,
+            h: row.querySelector('.item-h').value,
+            q: row.querySelector('.item-q').value
+        });
+    });
+    localStorage.setItem('sheetOptimizerInputs', JSON.stringify(data));
+    alert('Inputs saved successfully!');
+}
+
+function loadInputs() {
+    const dataStr = localStorage.getItem('sheetOptimizerInputs');
+    if (!dataStr) return;
+    const data = JSON.parse(dataStr);
+    const tbody = document.getElementById('itemBody');
+    tbody.innerHTML = '';
+    data.forEach(item => {
+        const row = `<tr>
+            <td><select class="item-name" onchange="setDefaultDimensions(this)">
+                <option value="door" ${item.name === 'door' ? 'selected' : ''}>Door</option>
+                <option value="plaster" ${item.name === 'plaster' ? 'selected' : ''}>Midpanel</option>
+                <option value="divider" ${item.name === 'divider' ? 'selected' : ''}>Divider</option>
+                <option value="urinal" ${item.name === 'urinal' ? 'selected' : ''}>Urinal</option>
+                <option value="endwall" ${item.name === 'endwall' ? 'selected' : ''}>Endwall</option>
+                <option value="endpanel" ${item.name === 'endpanel' ? 'selected' : ''}>Endpanel</option>
+            </select></td>
+            <td><input type="number" class="item-w" placeholder="mm" value="${item.w}"></td>
+            <td><input type="number" class="item-h" placeholder="mm" value="${item.h}"></td>
+            <td><input type="number" value="${item.q}" class="item-q"></td>
+            <td><button onclick="this.closest('tr').remove()" style="color:red;">&times;</button></td>
+        </tr>`;
+        tbody.insertAdjacentHTML('beforeend', row);
+    });
+}
+
+function addRow() {
+    const tbody = document.getElementById('itemBody');
+    const row = `<tr>
+        <td><select class="item-name" onchange="setDefaultDimensions(this)">
+            <option value="door">Door</option>
+            <option value="plaster">Midpanel</option>
+            <option value="divider">Divider</option>
+            <option value="urinal">Urinal</option>
+            <option value="endwall">Endwall</option>
+        </select></td>
+        <td><input type="number" class="item-w" placeholder="mm" value="600"></td>
+        <td><input type="number" class="item-h" placeholder="mm" value="1790"></td>
+        <td><input type="number" value="1" class="item-q"></td>
+        <td><button onclick="this.closest('tr').remove()" style="color:red;">&times;</button></td>
+    </tr>`;
+    tbody.insertAdjacentHTML('beforeend', row);
+}
+
+const ITEM_DEFAULT_DIMENSIONS = {
+    door: { w: 600, h: 1790 },
+    plaster: { w: 400, h: 1830 },
+    divider: { w: 1500, h: 1790 },
+    urinal: { w: 450, h: 900 },
+    endwall: { w: 1500, h: 1830 },
+    endpanel: { w: 200, h: 1830 }
+};
+
+function setDefaultDimensions(select) {
+    const dims = ITEM_DEFAULT_DIMENSIONS[select.value] || { w: '', h: '' };
+    const row = select.closest('tr');
+    const widthInput = row.querySelector('.item-w');
+    const heightInput = row.querySelector('.item-h');
+    if (widthInput) widthInput.value = dims.w;
+    if (heightInput) heightInput.value = dims.h;
+}
+
+// Fixed sheet inventory definitions (Width x Height in mm)
+const AVAILABLE_SHEETS = [
+    { name: "12 x 6 Feet", w: 3670, h: 1860 },
+    { name: "14 x 6 Feet", w: 4300, h: 1860 }
+    // { name: "8 x 6 Feet",  w: 2438, h: 1829 }
+];
+function calculateOptimization() {
+    const kerf = parseFloat(document.getElementById('kerf').value) || 0;
+    const names = document.querySelectorAll('.item-name');
+    const widths = document.querySelectorAll('.item-w');
+    const heights = document.querySelectorAll('.item-h');
+    const quantities = document.querySelectorAll('.item-q');
+
+    let rawItems = [];
+    let totalUsedAreaSqMm = 0;
+
+    for (let i = 0; i < widths.length; i++) {
+        let w = parseFloat(widths[i].value) || 0;
+        let h = parseFloat(heights[i].value) || 0;
+        let q = parseInt(quantities[i].value) || 0;
+        let label = names[i].value || `Item ${i+1}`;
+        
+        if (w <= 0 || h <= 0 || q <= 0) continue;
+
+        totalUsedAreaSqMm += (w * h * q);
+
+        for (let j = 0; j < q; j++) {
+            rawItems.push({ label: label, w: w, h: h });
+        }
+    }
+    if (rawItems.length === 0) return alert("Please enter valid panel dimensions.");
+
+    rawItems.sort((a, b) => {
+        const areaA = a.w * a.h;
+        const areaB = b.w * b.h;
+        if (areaB !== areaA) return areaB - areaA;
+        return Math.max(b.w, b.h) - Math.max(a.w, a.h);
+    });
+
+    let bestOption = null;
+    let minSheetsUsed = Infinity;
+
+    let packedSheets = packItemsIndividually(rawItems, AVAILABLE_SHEETS, kerf);
+
+if (!packedSheets || packedSheets.length === 0) {
+    return alert("Some parts are too large to fit on any available stock sheet sizes.");
+}
+
+// Map parameters dynamically to support mixed sizes in output summary logs
+let totalStockAreaSqMm = 0;
+packedSheets.forEach(sheet => {
+    totalStockAreaSqMm += sheet.stock.w * sheet.stock.h;
+});
+
+// Update standard display blocks safely
+document.getElementById('bestSheet').innerText = "Mixed Sizes Used";
+document.getElementById('sheetsNeeded').innerText = packedSheets.length;
+document.getElementById('usedArea').innerText = (totalUsedAreaSqMm / 1000000).toFixed(2);
+document.getElementById('ft2').innerText = (totalUsedAreaSqMm / 92903.04).toFixed(2);
+
+const summaryTableBody = document.getElementById('summaryTableBody');
+summaryTableBody.innerHTML = '';
+const orderSummary = {};
+packedSheets.forEach(sheet => {
+    const sheetName = sheet.stock.name;
+    if (!orderSummary[sheetName]) {
+        orderSummary[sheetName] = { count: 0, totalArea: 0, usedArea: 0, remainingArea: 0 };
+    }
+    const sheetArea = sheet.stock.w * sheet.stock.h;
+    let usedArea = 0;
+    sheet.placedItems.forEach(item => {
+        usedArea += item.finalW * item.finalH;
+    });
+    orderSummary[sheetName].count += 1;
+    orderSummary[sheetName].totalArea += sheetArea;
+    orderSummary[sheetName].usedArea += usedArea;
+    orderSummary[sheetName].remainingArea += sheetArea - usedArea;
+});
+Object.entries(orderSummary).forEach(([sizeName, summary]) => {
+    const row = `
+        <tr style="border-bottom: 1px solid #eee;">
+            <td style="padding: 8px; font-weight: bold; color: #1565c0;">${sizeName}</td>
+            <td style="padding: 8px; font-weight: bold;">${summary.count} pcs</td>
+            <td style="padding: 8px; font-weight: bold;">${(summary.totalArea / 1000000).toFixed(2)} m²</td>
+            <td style="padding: 8px; font-weight: bold;">${(summary.usedArea / 1000000).toFixed(2)} m²</td>
+            <td style="padding: 8px; font-weight: bold;">${(summary.remainingArea / 1000000).toFixed(2)} m²</td>
+        </tr>
+    `;
+    summaryTableBody.insertAdjacentHTML('beforeend', row);
+});
+
+function exportSheetSummary() {
+    const table = document.querySelector("#orderSummarySection table");
+    const rows = table.querySelectorAll("tr");
+    const csv = [];
+    for (let i = 0; i < rows.length; i++) {
+        let row = [], cols = rows[i].querySelectorAll("td, th");
+        for (let j = 0; j < cols.length; j++) {
+            let data = cols[j].innerText.replace(/"/g, '""');
+            row.push('"' + data + '"');
+        }
+        csv.push(row.join(","));
+    }
+    const csvString = csv.join("\n");
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", "Sheet_Optimization_Summary.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+const container = document.getElementById('canvasContainer');
+container.innerHTML = ''; 
+
+// Build responsive HTML output layout containers dynamically per unique mixed canvas instance
+packedSheets.forEach((sheet, index) => {
+    let sheetUsedAreaSqMm = 0;
+    sheet.placedItems.forEach(item => {
+        sheetUsedAreaSqMm += (item.finalW * item.finalH);
+    });
+
+    let currentSheetTotalArea = sheet.stock.w * sheet.stock.h;
+    let usedAreaSqMm = sheetUsedAreaSqMm;
+    let remainingAreaSqMm = currentSheetTotalArea - usedAreaSqMm;
+    let sheetTotalSqM = (currentSheetTotalArea / 1000000).toFixed(2);
+    let usedSqM = (usedAreaSqMm / 1000000).toFixed(2);
+    let remainingSqM = (remainingAreaSqMm / 1000000).toFixed(2);
+    let remainingSqFt = (remainingAreaSqMm / 92903.04).toFixed(2);
+
+    const sheetDiv = document.createElement('div');
+    sheetDiv.className = 'sheet-container';
+
+    const title = document.createElement('h4');
+    title.style.margin = "5px 0";
+    title.innerText = `Sheet Layout #${index + 1} (${sheet.stock.name})`; // Uses individual sheet identity
+    sheetDiv.appendChild(title);
+
+    const sheetInfo = document.createElement('div');
+    sheetInfo.className = 'waste-info';
+    sheetInfo.style.color = '#333';
+    sheetInfo.innerHTML = `Sheet area: ${sheetTotalSqM} m²<br>Used area: ${usedSqM} m²<br>Remaining area: ${remainingSqM} m² (${remainingSqFt} sq.ft)`;
+    sheetDiv.appendChild(sheetInfo);
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'sheet-canvas';
+    
+    const maxDisplayWidth = 700;
+    const scale = maxDisplayWidth / sheet.stock.w; // Scales down relative to specific stock size
+    canvas.width = maxDisplayWidth;
+    canvas.height = sheet.stock.h * scale;
+    
+    sheetDiv.appendChild(canvas);
+    drawSheetDiagram(canvas, sheet, scale, kerf);
+    
+    const downloadBtn = document.createElement('button');
+    downloadBtn.innerText = 'Download Layout Image';
+    downloadBtn.style.marginTop = '10px';
+    downloadBtn.style.display = 'block';
+    downloadBtn.onclick = function() {
+        const link = document.createElement('a');
+        link.download = `Sheet_Layout_${index + 1}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    };
+    sheetDiv.appendChild(downloadBtn);
+
+    container.appendChild(sheetDiv);
+});
+
+document.getElementById('results').style.display = 'block';
+document.getElementById('exportBtn').style.display = 'inline-block';
+}
+// Next-Fit/First-Fit Decreasing Shelf Bin Packing Algorithm
+// New packing coordinator managing item placement item-by-item across different stock metrics
+function packItemsIndividually(items, stockInventory, kerf) {
+    let sheets = [];
+    let sortedStock = [...stockInventory].sort((a, b) => (a.w * a.h) - (b.w * b.h));
+    let itemsToPack = items.map(p => ({ ...p }));
+
+    for (let itemIndex = 0; itemIndex < itemsToPack.length; itemIndex++) {
+        let item = itemsToPack[itemIndex];
+        let packed = false;
+
+        for (let sheet of sheets) {
+            if (tryPlaceOnSheetFreeRects(sheet, item, kerf)) {
+                packed = true;
+                break;
+            }
+        }
+
+        if (!packed) {
+            let candidateStocks = sortedStock.filter(stock => {
+                let fitsNormal = item.w <= stock.w && item.h <= stock.h;
+                let fitsRotated = item.h <= stock.w && item.w <= stock.h;
+                return fitsNormal || fitsRotated;
+            });
+            if (candidateStocks.length === 0) return null;
+
+            const remainingItems = itemsToPack.slice(itemIndex);
+            let matchedStock = candidateStocks.find(stock =>
+                canPackItemsOnSingleSheet(remainingItems, stock, kerf)
+            ) || candidateStocks[0];
+
+            let newSheet = {
+                stock: matchedStock,
+                placedItems: [],
+                freeRects: [{ x: 0, y: 0, w: matchedStock.w, h: matchedStock.h }]
+            };
+
+            if (tryPlaceOnSheetFreeRects(newSheet, item, kerf)) {
+                sheets.push(newSheet);
+            } else {
+                return null;
+            }
+        }
+    }
+    return sheets;
+}
+
+function canPackItemsOnSingleSheet(items, stock, kerf) {
+    const tempSheet = {
+        stock,
+        placedItems: [],
+        freeRects: [{ x: 0, y: 0, w: stock.w, h: stock.h }]
+    };
+
+    for (let item of items.map(p => ({ ...p }))) {
+        if (!tryPlaceOnSheetFreeRects(tempSheet, item, kerf)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function tryPlaceOnSheetFreeRects(sheet, item, kerf) {
+    let bestPlacement = null;
+    let orientations = [
+        { w: item.w, h: item.h, rotated: false },
+        { w: item.h, h: item.w, rotated: true }
+    ];
+
+    for (let orient of orientations) {
+        if (orient.w > sheet.stock.w || orient.h > sheet.stock.h) continue;
+
+        for (let rect of sheet.freeRects) {
+            if (orient.w > rect.w || orient.h > rect.h) continue;
+
+            const rightMargin = (rect.x + orient.w < sheet.stock.w ? kerf : 0);
+            const bottomMargin = (rect.y + orient.h < sheet.stock.h ? kerf : 0);
+            const usedWidth = orient.w + rightMargin;
+            const usedHeight = orient.h + bottomMargin;
+            if (usedWidth > rect.w || usedHeight > rect.h) continue;
+
+            const waste = rect.w * rect.h - (usedWidth * usedHeight);
+            const fitScore = waste + rect.w + rect.h;
+            if (!bestPlacement || fitScore < bestPlacement.fitScore) {
+                bestPlacement = { rect, orient, usedWidth, usedHeight, fitScore };
+            }
+        }
+    }
+
+    if (!bestPlacement) return false;
+
+    const { rect, orient, usedWidth, usedHeight } = bestPlacement;
+    item.x = rect.x;
+    item.y = rect.y;
+    item.finalW = orient.w;
+    item.finalH = orient.h;
+    item.rotated = orient.rotated;
+    sheet.placedItems.push(item);
+
+    const usedRect = {
+        x: rect.x,
+        y: rect.y,
+        w: usedWidth,
+        h: usedHeight
+    };
+
+    sheet.freeRects = sheet.freeRects.flatMap(freeRect => splitFreeRectangles(freeRect, usedRect));
+    sheet.freeRects = pruneFreeRectangles(sheet.freeRects);
+    return true;
+}
+
+function splitFreeRectangles(freeRect, usedRect) {
+    if (usedRect.x >= freeRect.x + freeRect.w || usedRect.x + usedRect.w <= freeRect.x || usedRect.y >= freeRect.y + freeRect.h || usedRect.y + usedRect.h <= freeRect.y) {
+        return [freeRect];
+    }
+
+    const rects = [];
+    if (usedRect.x > freeRect.x) {
+        rects.push({
+            x: freeRect.x,
+            y: freeRect.y,
+            w: usedRect.x - freeRect.x,
+            h: freeRect.h
+        });
+    }
+    if (usedRect.x + usedRect.w < freeRect.x + freeRect.w) {
+        rects.push({
+            x: usedRect.x + usedRect.w,
+            y: freeRect.y,
+            w: freeRect.x + freeRect.w - (usedRect.x + usedRect.w),
+            h: freeRect.h
+        });
+    }
+    if (usedRect.y > freeRect.y) {
+        rects.push({
+            x: freeRect.x,
+            y: freeRect.y,
+            w: freeRect.w,
+            h: usedRect.y - freeRect.y
+        });
+    }
+    if (usedRect.y + usedRect.h < freeRect.y + freeRect.h) {
+        rects.push({
+            x: freeRect.x,
+            y: usedRect.y + usedRect.h,
+            w: freeRect.w,
+            h: freeRect.y + freeRect.h - (usedRect.y + usedRect.h)
+        });
+    }
+
+    return rects.filter(r => r.w > 0 && r.h > 0);
+}
+
+function rectContains(a, b) {
+    return a.x <= b.x && a.y <= b.y && a.x + a.w >= b.x + b.w && a.y + a.h >= b.y + b.h;
+}
+
+function pruneFreeRectangles(rects) {
+    const result = [...rects];
+    for (let i = result.length - 1; i >= 0; i--) {
+        for (let j = 0; j < result.length; j++) {
+            if (i !== j && rectContains(result[j], result[i])) {
+                result.splice(i, 1);
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+function drawSheetDiagram(canvas, sheet, scale, kerf = 2) {
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = "#f5f5f5";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 0, canvas.width, canvas.height);
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+
+    sheet.freeRects.forEach(rect => {
+        const rx = rect.x * scale;
+        const ry = rect.y * scale;
+        const rw = rect.w * scale;
+        const rh = rect.h * scale;
+        ctx.fillStyle = "#e0e0e0";
+        ctx.fillRect(rx, ry, rw, rh);
+        ctx.strokeStyle = "#9e9e9e";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(rx, ry, rw, rh);
+        if (rw > 40 && rh > 15) {
+            ctx.fillStyle = "#666666";
+            ctx.font = "italic 10px Arial";
+            ctx.fillText(`${Math.round(rect.w)}x${Math.round(rect.h)}`, rx + rw / 2, ry + rh / 2);
+        }
+    });
+
+    sheet.placedItems.forEach(item => {
+        const rx = item.x * scale;
+        const ry = item.y * scale;
+        const rw = item.finalW * scale;
+        const rh = item.finalH * scale;
+        ctx.fillStyle = "#bbdefb";
+        ctx.fillRect(rx, ry, rw, rh);
+        ctx.strokeStyle = "#0d47a1";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(rx, ry, rw, rh);
+        const centerX = rx + rw / 2;
+        const centerY = ry + rh / 2;
+        if (rw > 40 && rh > 20) {
+            ctx.fillStyle = "#000000";
+            ctx.font = "bold 10px Arial";
+            ctx.fillText(item.label, centerX, centerY - 6);
+            ctx.font = "10px Arial";
+            ctx.fillText(`${Math.round(item.finalW)}x${Math.round(item.finalH)}`, centerX, centerY + 6);
+        }
+    });
+}
+</script>
+</body>
+</html>
+   
